@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { supabase } from '../../supabaseClient';
 import { useNavigate } from 'react-router-dom';
+import { sendPasswordResetEmail, signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../App';
+
 
 const SignIn = () => {
     const [email, setEmail] = useState('');
@@ -10,26 +12,60 @@ const SignIn = () => {
     const [showPassword, setShowPassword] = useState(false);
     const navigate = useNavigate();
 
-
     const handleSignIn = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         setError(null);
 
-        const { error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-        });
+        try {
+            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            const user = userCredential.user;
 
-        if (error) {
-            setError(error.message);
-        } else {
+            console.log('User signed in:', user);
             navigate('/dashboard');
+        } catch (error: any) {
+
+            switch (error.code) {
+                case 'auth/invalid-email':
+                    setError('Invalid email address format.');
+                    break;
+                case 'auth/user-disabled':
+                    setError('This account has been disabled.');
+                    break;
+                case 'auth/user-not-found':
+                    setError('No account found with this email.');
+                    break;
+                case 'auth/wrong-password':
+                    setError('Incorrect password. Please try again.');
+                    break;
+                case 'auth/too-many-requests':
+                    setError('Too many failed attempts. Please try again later.');
+                    break;
+                case 'auth/network-request-failed':
+                    setError('Network error. Please check your connection.');
+                    break;
+                default:
+                    setError('Failed to sign in. Please try again.');
+            }
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
 
+    const handlePasswordReset = async () => {
+        if (!email) {
+            setError('Please enter your email address first.');
+            return;
+        }
+
+        try {
+            await sendPasswordResetEmail(auth, email);
+            alert('Password reset email sent! Check your inbox.');
+        } catch (error: any) {
+            setError('Failed to send reset email. Please try again.');
+        }
+    };
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-600 via-purple-600 to-indigo-700 flex items-center justify-center p-4">
@@ -115,6 +151,16 @@ const SignIn = () => {
                                         </svg>
                                     </button>
                                 </div>
+
+                                <div className="mt-2 text-right">
+                                    <button
+                                        type="button"
+                                        onClick={handlePasswordReset}
+                                        className="text-blue-300 hover:text-blue-200 text-sm font-medium transition-colors duration-200"
+                                    >
+                                        Forgot password?
+                                    </button>
+                                </div>
                             </div>
 
                             <button
@@ -136,7 +182,18 @@ const SignIn = () => {
                             </button>
                         </form>
 
-
+                        {/* Optional: Sign up link */}
+                        <div className="mt-6 text-center">
+                            <p className="text-white/70 text-sm">
+                                Don't have an account?{' '}
+                                <button
+                                    onClick={() => navigate('/signup')}
+                                    className="text-blue-300 hover:text-blue-200 font-semibold transition-colors duration-200"
+                                >
+                                    Sign up
+                                </button>
+                            </p>
+                        </div>
                     </div>
                 </div>
 
@@ -145,7 +202,7 @@ const SignIn = () => {
                         <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                         </svg>
-                        Your information is securely encrypted
+                        Secured by Firebase Authentication
                     </div>
                 </div>
             </div>

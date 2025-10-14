@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import a1 from '../assets/a1.jpeg'
 import a2 from '../assets/a2.jpeg'
-
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
+import { db } from '../App'
 
 
 declare global {
@@ -12,11 +13,21 @@ declare global {
     }
 }
 
+interface PaymentData {
+    name: string;
+    email: string;
+    transactionRef: string;
+    amount: number;
+    date: Date;
+    status: string;
+}
+
 function Landing() {
     const [currentBg, setCurrentBg] = useState(a1)
     const [isVisible, setIsVisible] = useState(false)
     const [showModal, setShowModal] = useState(false)
-    const [email, setEmail] = useState('')
+    const [name, setName] = useState<any>('')
+    const [email, setEmail] = useState<any>('')
     const [isProcessing, setIsProcessing] = useState(false)
     const [formErrors, setFormErrors] = useState('')
 
@@ -33,27 +44,54 @@ function Landing() {
         setFormErrors('')
     }
 
+    const savePaymentToFirebase = async (paymentData: PaymentData) => {
+        try {
+            const docRef = await addDoc(collection(db, 'payments'), {
+                ...paymentData,
+                timestamp: serverTimestamp(),
+                createdAt: new Date().toISOString()
+            });
+            alert("Payment Successful! Your tickets have been reserved. Check your email for confirmation.");
+
+            setIsProcessing(false);
+            setShowModal(false);
+            setEmail('');
+            setName('');
+            return docRef.id;
+        } catch (error) {
+            console.error('Error saving payment data: ', error);
+            throw error;
+        }
+        finally {
+            setIsProcessing(false)
+        }
+    }
+
 
     const payWithMonnify = () => {
-
         if (!(window as any).MonnifySDK) {
             alert("Monnify SDK not loaded yet. Please try again.");
             setIsProcessing(false);
             return;
         }
 
+        const transactionRef = `LAHRAY_${new Date().getTime()}_${Math.random().toString(36).substr(2, 9)}`;
+        const amount = 25000;
+
         (window as any).MonnifySDK.initialize({
-            amount: 1000,
+            amount: amount,
             currency: "NGN",
-            reference: new String(new Date().getTime()),
-            customerFullName: "Damilare Ogunnaike",
-            customerEmail: "ogunnaike.damilare@gmail.com",
+            reference: transactionRef,
+            customerFullName: name || "Guest Customer",
+            customerEmail: email,
+            customerMobileNumber: "08000000000",
             apiKey: "MK_TEST_L6407XKCZN",
             contractCode: "4195335986",
-            paymentDescription: "Lahray World",
+            paymentDescription: "Lahray World - Cocktail & BBQ Party",
             metadata: {
-                name: "Damilare",
-                age: 45,
+                event: "Unlimited Cocktail & BBQ Party",
+                ticket_type: "General Admission",
+                customer_name: name,
             },
             incomeSplitConfig: [
                 {
@@ -71,13 +109,47 @@ function Landing() {
             ],
             onLoadStart: () => console.log("Loading Monnify SDK..."),
             onLoadComplete: () => console.log("Monnify SDK Ready ✅"),
-            onComplete: (response: any) => {
-                console.log("Payment completed ✅", response);
-                alert("Payment Successful!");
-                setIsProcessing(false);
+            onComplete: async (response: any) => {
+
+                const paymentData: PaymentData = {
+                    name: name || "Guest Customer",
+                    email: email,
+                    transactionRef: transactionRef,
+                    amount: amount,
+                    date: new Date(),
+                    status: 'success'
+                };
+
+                try {
+
+                    await savePaymentToFirebase(paymentData);
+
+
+
+                } catch (error) {
+                    console.error('Error saving payment data:', error);
+                    alert("Payment was successful but there was an issue saving your details. Please contact support with your transaction reference.");
+                    setIsProcessing(false);
+                }
             },
             onClose: (data: any) => {
                 console.log("Payment closed ❌", data);
+
+                if (data && data.transactionReference) {
+                    const paymentData: PaymentData = {
+                        name: name || "Guest Customer",
+                        email: email,
+                        transactionRef: data.transactionReference,
+                        amount: amount,
+                        date: new Date(),
+                        status: 'cancelled'
+                    };
+
+                    savePaymentToFirebase(paymentData).catch(error => {
+                        console.error('Error saving cancelled payment:', error);
+                    });
+                }
+
                 setIsProcessing(false);
             },
         });
@@ -86,6 +158,11 @@ function Landing() {
     const handlePayment = async (e: React.FormEvent) => {
         e.preventDefault()
         setFormErrors('')
+
+        if (!name) {
+            setFormErrors('Name is required')
+            return
+        }
 
         if (!email) {
             setFormErrors('Email is required')
@@ -100,43 +177,7 @@ function Landing() {
         setIsProcessing(true)
 
         try {
-            // const handler = window.PaystackPop.setup({
-            //     key: 'pk_test_your_public_key_here',
-            //     email: email,
-            //     amount: 25000 * 100,
-            //     currency: 'NGN',
-            //     ref: 'CBQ_' + Math.floor(Math.random() * 1000000000 + 1),
-            //     metadata: {
-            //         custom_fields: [
-            //             {
-            //                 display_name: 'Event',
-            //                 variable_name: 'event',
-            //                 value: 'Cocktail & BBQ Party',
-            //             },
-            //             {
-            //                 display_name: 'Ticket Type',
-            //                 variable_name: 'ticket_type',
-            //                 value: 'General Admission',
-            //             },
-            //         ],
-            //     },
-            //     callback: function (response: any) {
-            //         setIsProcessing(false)
-            //         setShowModal(false)
-            //         setEmail('')
-            //         alert(
-            //             'Payment successful! Your tickets have been reserved. Check your email for confirmation.'
-            //         )
-            //         console.log('Payment response:', response)
-            //     },
-            //     onClose: function () {
-            //         setIsProcessing(false)
-            //         alert('Payment was not completed. Please try again.')
-            //     },
-            // })
-            // handler.openIframe()
             payWithMonnify()
-
 
         } catch (error) {
             console.error('Payment error:', error)
@@ -158,7 +199,7 @@ function Landing() {
             className="relative flex flex-col items-center justify-center min-h-screen bg-cover bg-center overflow-hidden transition-all duration-1000 pt-10"
             style={{
                 backgroundImage: `url(${currentBg})`,
-                filter: 'brightness(1.25) contrast(1.05)',
+                // filter: 'brightness(1.25) contrast(1.05)',
             }}
         >
 
@@ -331,25 +372,44 @@ function Landing() {
 
                         <div className="p-6">
                             <form onSubmit={handlePayment}>
-                                <div className="mb-6">
-                                    <label
-                                        htmlFor="email"
-                                        className="block text-sm font-medium text-gray-700 mb-2"
-                                    >
-                                        Email Address *
-                                    </label>
-                                    <input
-                                        type="email"
-                                        id="email"
-                                        value={email}
-                                        onChange={e => setEmail(e.target.value)}
-                                        placeholder="Enter your email to continue"
-                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all duration-200"
-                                        disabled={isProcessing}
-                                    />
-                                    {formErrors && (
-                                        <p className="text-red-500 text-sm mt-2">{formErrors}</p>
-                                    )}
+                                <div className="space-y-4 mb-6">
+                                    <div>
+                                        <label
+                                            htmlFor="name"
+                                            className="block text-sm font-bold text-gray-700 mb-2"
+                                        >
+                                            👤 Full Name *
+                                        </label>
+                                        <input
+                                            type="text"
+                                            id="name"
+                                            value={name}
+                                            onChange={e => setName(e.target.value)}
+                                            placeholder="Enter your full name"
+                                            className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-200 focus:border-orange-500 transition-all duration-200 bg-gray-50 hover:bg-white"
+                                            disabled={isProcessing}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label
+                                            htmlFor="email"
+                                            className="block text-sm font-medium text-gray-700 mb-2"
+                                        >
+                                            Email Address *
+                                        </label>
+                                        <input
+                                            type="email"
+                                            id="email"
+                                            value={email}
+                                            onChange={e => setEmail(e.target.value)}
+                                            placeholder="Enter your email to continue"
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all duration-200"
+                                            disabled={isProcessing}
+                                        />
+                                        {formErrors && (
+                                            <p className="text-red-500 text-sm mt-2">{formErrors}</p>
+                                        )}
+                                    </div>
                                 </div>
 
                                 <div className="bg-gray-50 rounded-lg p-4 mb-6">

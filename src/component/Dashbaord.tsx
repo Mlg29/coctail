@@ -1,111 +1,68 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../../supabaseClient';
+import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
+import { signOut } from 'firebase/auth';
+import { auth, db } from '../App';
+
 
 const Dashboard = () => {
-    const [payments, setPayments] = useState<any>([]);
+    const [payments, setPayments] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
 
-
-    const samplePayments = [
-        {
-            id: 'CBQ_001',
-            amount: 25000,
-            status: 'completed',
-            date: '2024-12-01T14:30:00Z',
-            customer: 'John Doe',
-            email: 'john@example.com',
-            tickets: 1,
-            event: 'Cocktail & BBQ Party'
-        },
-        {
-            id: 'CBQ_002',
-            amount: 50000,
-            status: 'completed',
-            date: '2024-12-01T15:45:00Z',
-            customer: 'Sarah Wilson',
-            email: 'sarah@example.com',
-            tickets: 2,
-            event: 'Cocktail & BBQ Party'
-        },
-        {
-            id: 'CBQ_003',
-            amount: 25000,
-            status: 'pending',
-            date: '2024-12-02T09:15:00Z',
-            customer: 'Mike Johnson',
-            email: 'mike@example.com',
-            tickets: 1,
-            event: 'Cocktail & BBQ Party'
-        },
-        {
-            id: 'CBQ_004',
-            amount: 75000,
-            status: 'completed',
-            date: '2024-12-02T11:20:00Z',
-            customer: 'Emily Davis',
-            email: 'emily@example.com',
-            tickets: 3,
-            event: 'Cocktail & BBQ Party'
-        },
-        {
-            id: 'CBQ_005',
-            amount: 25000,
-            status: 'failed',
-            date: '2024-12-02T16:50:00Z',
-            customer: 'David Brown',
-            email: 'david@example.com',
-            tickets: 1,
-            event: 'Cocktail & BBQ Party'
-        },
-        {
-            id: 'CBQ_006',
-            amount: 50000,
-            status: 'completed',
-            date: '2024-12-03T10:05:00Z',
-            customer: 'Lisa Anderson',
-            email: 'lisa@example.com',
-            tickets: 2,
-            event: 'Cocktail & BBQ Party'
-        }
-    ];
-
     useEffect(() => {
-
         const fetchPayments = async () => {
             setLoading(true);
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            setPayments(samplePayments);
-            setLoading(false);
+            try {
+                const paymentsQuery = query(
+                    collection(db, 'payments'),
+                    orderBy('timestamp', 'desc')
+                );
+
+                const querySnapshot = await getDocs(paymentsQuery);
+                const paymentsData = querySnapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+
+                setPayments(paymentsData);
+            } catch (error) {
+                console.error('Error fetching payments:', error);
+                alert('Error loading payments data');
+            } finally {
+                setLoading(false);
+            }
         };
 
         fetchPayments();
     }, []);
 
-
     const filteredPayments = payments.filter((payment: any) => {
         const matchesFilter = filter === 'all' || payment.status === filter;
-        const matchesSearch = payment.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            payment.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            payment.id.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesSearch =
+            payment.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            payment.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            payment.transactionRef?.toLowerCase().includes(searchTerm.toLowerCase());
         return matchesFilter && matchesSearch;
     });
 
-
     const stats = {
         total: payments.length,
-        completed: payments.filter((p: any) => p.status === 'completed').length,
+        completed: payments.filter((p: any) => p.status === 'successfull' || p.status === 'completed').length,
         pending: payments.filter((p: any) => p.status === 'pending').length,
-        failed: payments.filter((p: any) => p.status === 'failed').length,
-        totalRevenue: payments.filter((p: any) => p.status === 'completed').reduce((sum: any, p: any) => sum + p.amount, 0)
+        failed: payments.filter((p: any) => p.status === 'failed' || p.status === 'cancelled').length,
+        totalRevenue: payments
+            .filter((p: any) => p.status === 'successfull' || p.status === 'completed')
+            .reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
     };
 
     const getStatusBadge = (status: string) => {
         const statusConfig = {
+            success: { color: 'bg-green-100 text-green-800 border-green-200', label: 'Completed' },
             completed: { color: 'bg-green-100 text-green-800 border-green-200', label: 'Completed' },
             pending: { color: 'bg-yellow-100 text-yellow-800 border-yellow-200', label: 'Pending' },
-            failed: { color: 'bg-red-100 text-red-800 border-red-200', label: 'Failed' }
+            failed: { color: 'bg-red-100 text-red-800 border-red-200', label: 'Failed' },
+            cancelled: { color: 'bg-red-100 text-red-800 border-red-200', label: 'Cancelled' }
         } as any;
 
         const config = statusConfig[status] || { color: 'bg-gray-100 text-gray-800 border-gray-200', label: status };
@@ -124,10 +81,66 @@ const Dashboard = () => {
         }).format(amount);
     };
 
-    const handleSignOut = async () => {
-        await supabase.auth.signOut();
+    const formatDate = (date: any) => {
+        if (!date) return 'N/A';
+
+        // Handle Firestore Timestamp
+        if (date.toDate) {
+            return date.toDate().toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        // Handle string dates
+        if (typeof date === 'string') {
+            return new Date(date).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        return 'Invalid Date';
     };
 
+    const handleSignOut = async () => {
+        try {
+            await signOut(auth);
+            console.log('User signed out successfully');
+        } catch (error) {
+            console.error('Error signing out:', error);
+            alert('Error signing out');
+        }
+    };
+
+    const refreshData = async () => {
+        setLoading(true);
+        try {
+            const paymentsQuery = query(
+                collection(db, 'payments'),
+                orderBy('timestamp', 'desc')
+            );
+
+            const querySnapshot = await getDocs(paymentsQuery);
+            const paymentsData = querySnapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+
+            setPayments(paymentsData);
+        } catch (error) {
+            console.error('Error refreshing payments:', error);
+            alert('Error refreshing data');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     if (loading) {
         return (
@@ -160,22 +173,35 @@ const Dashboard = () => {
             <div className="max-w-7xl mx-auto">
                 <div className="mb-8">
                     <div className='flex justify-between items-center'>
-                        <h1 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-2">
-                            Payment Dashboard
-                        </h1>
-                        <button
-                            onClick={handleSignOut}
-                            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors duration-200"
-                        >
-                            Sign Out
-                        </button>
+                        <div>
+                            <h1 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-2">
+                                Payment Dashboard
+                            </h1>
+                            <p className="text-gray-600">
+                                Manage and monitor all ticket payments for Cocktail & BBQ Party
+                            </p>
+                        </div>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={refreshData}
+                                className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2 cursor-pointer"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                Refresh
+                            </button>
+                            <button
+                                onClick={handleSignOut}
+                                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 cursor-pointer"
+                            >
+                                Sign Out
+                            </button>
+                        </div>
                     </div>
-                    <p className="text-gray-600">
-                        Manage and monitor all ticket payments for Cocktail & BBQ Party
-                    </p>
                 </div>
 
-
+                {/* Stats Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
                         <div className="flex items-center justify-between">
@@ -236,11 +262,11 @@ const Dashboard = () => {
                     </div>
                 </div>
 
-
+                {/* Filters and Search */}
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
                     <div className="flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center">
                         <div className="flex flex-wrap gap-2">
-                            {['all', 'completed', 'pending', 'failed'].map((status) => (
+                            {['all', 'successfull', 'completed', 'pending', 'failed', 'cancelled'].map((status) => (
                                 <button
                                     key={status}
                                     onClick={() => setFilter(status)}
@@ -271,7 +297,7 @@ const Dashboard = () => {
                     </div>
                 </div>
 
-
+                {/* Payments Table */}
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                     <div className="px-6 py-4 border-b border-gray-200">
                         <h2 className="text-lg font-semibold text-gray-900">Recent Payments</h2>
@@ -295,7 +321,6 @@ const Dashboard = () => {
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Transaction</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tickets</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                                     </tr>
@@ -305,35 +330,24 @@ const Dashboard = () => {
                                         <tr key={payment.id} className="hover:bg-gray-50 transition-colors duration-150">
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <div>
-                                                    <div className="text-sm font-medium text-gray-900">{payment.id}</div>
-                                                    <div className="text-sm text-gray-500">{payment.event}</div>
+                                                    <div className="text-sm font-medium text-gray-900">{payment.transactionRef || 'N/A'}</div>
+                                                    <div className="text-sm text-gray-500">Cocktail & BBQ Party</div>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <div>
-                                                    <div className="text-sm font-medium text-gray-900">{payment.customer}</div>
-                                                    <div className="text-sm text-gray-500">{payment.email}</div>
+                                                    <div className="text-sm font-medium text-gray-900">{payment.name || 'Guest Customer'}</div>
+                                                    <div className="text-sm text-gray-500">{payment.email || 'N/A'}</div>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                                                {formatCurrency(payment.amount)}
+                                                {formatCurrency(payment.amount || 0)}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                                    {payment.tickets} {payment.tickets === 1 ? 'ticket' : 'tickets'}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                {getStatusBadge(payment.status)}
+                                                {getStatusBadge(payment.status || 'pending')}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                {new Date(payment.date).toLocaleDateString('en-US', {
-                                                    year: 'numeric',
-                                                    month: 'short',
-                                                    day: 'numeric',
-                                                    hour: '2-digit',
-                                                    minute: '2-digit'
-                                                })}
+                                                {formatDate(payment.date || payment.timestamp)}
                                             </td>
                                         </tr>
                                     ))}
@@ -342,7 +356,6 @@ const Dashboard = () => {
                         </div>
                     )}
                 </div>
-
 
                 <div className="mt-6 text-center">
                     <p className="text-sm text-gray-500">

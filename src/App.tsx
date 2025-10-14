@@ -4,35 +4,42 @@ import Landing from './component/Landing'
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import SignIn from './component/SignIn';
 
+import { initializeApp } from 'firebase/app'
+import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore'
+import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import Dashboard from './component/Dashbaord';
-import { supabase } from '../supabaseClient';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDpO6LH_g9PTz2a9UtfGzANlKdiaoetLzQ",
+  authDomain: "cocktail-76d7d.firebaseapp.com",
+  projectId: "cocktail-76d7d",
+  storageBucket: "cocktail-76d7d.firebasestorage.app",
+  messagingSenderId: "363988470377",
+  appId: "1:363988470377:web:19001fd7286020e4ceb0f8",
+  measurementId: "G-D7R9C205TL"
+};
+
+// Initialize Firebase
+export const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app);
+export const auth = getAuth(app);
 
 function App() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-
-    const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user || null);
+    // Firebase auth state listener
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
       setLoading(false);
-    };
+    });
 
-    getSession();
-
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        setUser(session?.user || null);
-        setLoading(false);
-      }
-    );
-
-    return () => subscription.unsubscribe();
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
   }, []);
 
-  const ProtectedRoute = ({ children }: any) => {
+  const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     if (loading) {
       return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
@@ -51,8 +58,7 @@ function App() {
     return children;
   };
 
-
-  const PublicRoute = ({ children }: any) => {
+  const PublicRoute = ({ children }: { children: React.ReactNode }) => {
     if (loading) {
       return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
