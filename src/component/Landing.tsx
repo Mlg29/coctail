@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
 import { db } from '../App'
+import emailjs from 'emailjs-com';
+
 
 declare global {
     interface Window {
@@ -19,6 +21,13 @@ interface PaymentData {
     status: string;
 }
 
+interface CountdownTime {
+    days: string;
+    hours: string;
+    minutes: string;
+    seconds: string;
+}
+
 function Landing() {
     const [isVisible, setIsVisible] = useState(false)
     const [showModal, setShowModal] = useState(false)
@@ -26,10 +35,85 @@ function Landing() {
     const [email, setEmail] = useState<any>('')
     const [isProcessing, setIsProcessing] = useState(false)
     const [formErrors, setFormErrors] = useState('')
+    const [countdown, setCountdown] = useState<CountdownTime>({
+        days: '00',
+        hours: '00',
+        minutes: '00',
+        seconds: '00'
+    })
+
+    useEffect(() => {
+        const eventDate = new Date('December 14, 2025 19:00:00').getTime()
+
+        const updateCountdown = () => {
+            const now = new Date().getTime()
+            const distance = eventDate - now
+
+            if (distance < 0) {
+                setCountdown({
+                    days: '00',
+                    hours: '00',
+                    minutes: '00',
+                    seconds: '00'
+                })
+                return
+            }
+
+            const days = Math.floor(distance / (1000 * 60 * 60 * 24))
+            const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+            const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60))
+            const seconds = Math.floor((distance % (1000 * 60)) / 1000)
+
+            setCountdown({
+                days: days.toString().padStart(2, '0'),
+                hours: hours.toString().padStart(2, '0'),
+                minutes: minutes.toString().padStart(2, '0'),
+                seconds: seconds.toString().padStart(2, '0')
+            })
+        }
+
+        updateCountdown()
+
+        const countdownInterval = setInterval(updateCountdown, 1000)
+
+        return () => clearInterval(countdownInterval)
+    }, [])
+
+
 
     useEffect(() => {
         setIsVisible(true)
     }, [])
+
+
+    const sendConfirmationEmail = async (paymentData: PaymentData) => {
+        try {
+            emailjs.init("fUf2xigbc-ni9ckix");
+
+            const templateParams = {
+                email: paymentData.email,
+                name: paymentData.name,
+                transaction_ref: paymentData.transactionRef,
+                amount: `₦${(paymentData.amount / 100).toLocaleString()}`,
+                event_date: 'December 14, 2024',
+                event_time: '7:00 PM - Midnight',
+                event_location: 'Central Park, NYC - The Great Lawn',
+                reply_to: 'lmukhtar018@gmail.com'
+            };
+
+            const response = await emailjs.send(
+                'service_2yp2ptf',
+                'template_vfnwqff',
+                templateParams
+            );
+
+            console.log('Email sent successfully:', response);
+            return true;
+        } catch (error) {
+            console.error('Failed to send email:', error);
+            return false;
+        }
+    }
 
     const handleReserveClick = () => {
         setShowModal(true)
@@ -43,8 +127,13 @@ function Landing() {
                 timestamp: serverTimestamp(),
                 createdAt: new Date().toISOString()
             });
-            alert("Payment Successful! Your tickets have been reserved. Check your email for confirmation.");
+            const emailSent = await sendConfirmationEmail(paymentData);
 
+            if (emailSent) {
+                alert("Payment Successful! Your tickets have been reserved. Check your email for confirmation.");
+            } else {
+                alert("Payment Successful! Your tickets have been reserved. (Email confirmation may be delayed)");
+            }
             setIsProcessing(false);
             setShowModal(false);
             setEmail('');
@@ -246,7 +335,7 @@ function Landing() {
                                     </div>
                                     <div>
                                         <h3 className="text-white font-semibold text-lg">Date & Time</h3>
-                                        <p className="text-white/80">December 15, 2024</p>
+                                        <p className="text-white/80">December 14, 2025</p>
                                         <p className="text-white/60 text-sm">7:00 PM - Midnight</p>
                                     </div>
                                 </div>
@@ -333,10 +422,10 @@ function Landing() {
                             <h3 className="text-white font-bold text-center mb-4">Event Starts In</h3>
                             <div className="grid grid-cols-4 gap-3 text-center">
                                 {[
-                                    { value: '45', label: 'DAYS' },
-                                    { value: '12', label: 'HOURS' },
-                                    { value: '30', label: 'MINS' },
-                                    { value: '15', label: 'SECS' }
+                                    { value: countdown.days, label: 'DAYS' },
+                                    { value: countdown.hours, label: 'HOURS' },
+                                    { value: countdown.minutes, label: 'MINS' },
+                                    { value: countdown.seconds, label: 'SECS' }
                                 ].map((item, index) => (
                                     <div key={item.label} className="bg-black/30 rounded-xl p-3">
                                         <div className="text-2xl font-bold text-white">{item.value}</div>
